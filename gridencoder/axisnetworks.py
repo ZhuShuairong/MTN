@@ -169,12 +169,17 @@ class FourierFeatureTransform(nn.Module):
 
 
 class MultiScaleTriplane_Pooling(nn.Module):
-    def __init__(self, input_dim=3, n_scales=4, channel=32, grid_size=256, iteration=0, is_training=True):
+    def __init__(self, input_dim=3, n_scales=4, channel=32, grid_size=256, iteration=0, is_training=True, max_iters=6000):
         super().__init__()
         self.input_dim = input_dim
         self.output_dim = channel
         self.n_scales = n_scales
         self.iteration = iteration
+        self.max_iters = max_iters
+        # Proportional thresholds based on max_iters
+        self.t1 = max_iters // 2       # coarse plane_4 phase ends
+        self.t2 = 2 * max_iters // 3   # plane_3 phase ends
+        self.t3 = 5 * max_iters // 6   # plane_2 phase ends
         self.vector_1 = nn.ParameterList([nn.Parameter(torch.randn(1, channel, grid_size, 1) * 1e-3) for _ in range(3)])
         self.plane_2 = nn.ParameterList([nn.Parameter(torch.randn(1, channel, grid_size // 2, grid_size // 2) * 3e-4) for _ in range(3)])
         self.plane_3 = nn.ParameterList([nn.Parameter(torch.randn(1, channel, grid_size // 4, grid_size // 4) * 1.5e-4) for _ in range(3)])
@@ -240,34 +245,54 @@ class MultiScaleTriplane_Pooling(nn.Module):
         # Update the iteration attribute
         self.iteration = iteration
 
-        plane_x4 = self.plane_4[0].detach() if iteration > 3000 else self.plane_4[0]
-        plane_y4 = self.plane_4[1].detach() if iteration > 3000 else self.plane_4[1]
-        plane_z4 = self.plane_4[2].detach() if iteration > 3000 else self.plane_4[2]
+        # Use proportional thresholds
+        t1, t2, t3 = self.t1, self.t2, self.t3
+
+        # Softened gradient: instead of hard detach, scale gradients by 0.1 for previously-dominant scales
+        # This allows continued correction while focusing optimization on the current scale
+        if iteration > t1:
+            plane_x4 = self.plane_4[0] * 0.1 + self.plane_4[0].detach() * 0.9
+            plane_y4 = self.plane_4[1] * 0.1 + self.plane_4[1].detach() * 0.9
+            plane_z4 = self.plane_4[2] * 0.1 + self.plane_4[2].detach() * 0.9
+        else:
+            plane_x4 = self.plane_4[0]
+            plane_y4 = self.plane_4[1]
+            plane_z4 = self.plane_4[2]
 
         xy_embed = self.sample_plane(coordinates[..., 0:2], plane_x4, is_training)
         xy_embed.add_(self.sample_plane(coordinates[..., 1:3], plane_y4, is_training))
         xy_embed.add_(self.sample_plane(coordinates[..., :3:2], plane_z4, is_training))        
         del plane_x4, plane_y4, plane_z4
         
-        if iteration > 3000:
-            plane_x3 = self.plane_3[0].detach() if iteration > 4000 else self.plane_3[0]
-            plane_y3 = self.plane_3[1].detach() if iteration > 4000 else self.plane_3[1]
-            plane_z3 = self.plane_3[2].detach() if iteration > 4000 else self.plane_3[2]
+        if iteration > t1:
+            if iteration > t2:
+                plane_x3 = self.plane_3[0] * 0.1 + self.plane_3[0].detach() * 0.9
+                plane_y3 = self.plane_3[1] * 0.1 + self.plane_3[1].detach() * 0.9
+                plane_z3 = self.plane_3[2] * 0.1 + self.plane_3[2].detach() * 0.9
+            else:
+                plane_x3 = self.plane_3[0]
+                plane_y3 = self.plane_3[1]
+                plane_z3 = self.plane_3[2]
             xy_embed.add_(0.7 * self.sample_plane(coordinates[..., 0:2], plane_x3, is_training))
             xy_embed.add_(0.7 * self.sample_plane(coordinates[..., 1:3], plane_y3, is_training))
             xy_embed.add_(0.7 * self.sample_plane(coordinates[..., :3:2], plane_z3, is_training))
             del plane_x3, plane_y3, plane_z3
     
-        if iteration > 4000:
-            plane_x2 = self.plane_2[0].detach() if iteration > 5000 else self.plane_2[0]
-            plane_y2 = self.plane_2[1].detach() if iteration > 5000 else self.plane_2[1]
-            plane_z2 = self.plane_2[2].detach() if iteration > 5000 else self.plane_2[2]
+        if iteration > t2:
+            if iteration > t3:
+                plane_x2 = self.plane_2[0] * 0.1 + self.plane_2[0].detach() * 0.9
+                plane_y2 = self.plane_2[1] * 0.1 + self.plane_2[1].detach() * 0.9
+                plane_z2 = self.plane_2[2] * 0.1 + self.plane_2[2].detach() * 0.9
+            else:
+                plane_x2 = self.plane_2[0]
+                plane_y2 = self.plane_2[1]
+                plane_z2 = self.plane_2[2]
             xy_embed.add_(0.5 * self.sample_plane(coordinates[..., 0:2], plane_x2, is_training))
             xy_embed.add_(0.5 * self.sample_plane(coordinates[..., 1:3], plane_y2, is_training))
             xy_embed.add_(0.5 * self.sample_plane(coordinates[..., :3:2], plane_z2, is_training))
             del plane_x2, plane_y2, plane_z2
 
-        if iteration > 5000:
+        if iteration > t3:
             xy_embed.add_(0.3 * self.sample_vector(coordinates[..., 0:1], self.vector_1[0], is_training))
             xy_embed.add_(0.3 * self.sample_vector(coordinates[..., 1:2], self.vector_1[1], is_training))
             xy_embed.add_(0.3 * self.sample_vector(coordinates[..., 2:3], self.vector_1[2], is_training))
@@ -276,19 +301,21 @@ class MultiScaleTriplane_Pooling(nn.Module):
 
     def tvreg(self, global_step):
         l = 0
-        if global_step <= 3000:
-            for embed in self.plane_4:
-                l += ((embed[:, :, 1:] - embed[:, :, :-1])**2).sum()**0.5
-                l += ((embed[:, :, :, 1:] - embed[:, :, :, :-1])**2).sum()**0.5
-        elif global_step <= 4000:
+        t1, t2, t3 = self.t1, self.t2, self.t3
+        # Regularize ALL active scales, not just the current one
+        # Always regularize plane_4 (always active)
+        for embed in self.plane_4:
+            l += ((embed[:, :, 1:] - embed[:, :, :-1])**2).sum()**0.5
+            l += ((embed[:, :, :, 1:] - embed[:, :, :, :-1])**2).sum()**0.5
+        if global_step > t1:
             for embed in self.plane_3:
                 l += ((embed[:, :, 1:] - embed[:, :, :-1])**2).sum()**0.5
                 l += ((embed[:, :, :, 1:] - embed[:, :, :, :-1])**2).sum()**0.5
-        elif global_step <= 5000:
+        if global_step > t2:
             for embed in self.plane_2:
                 l += ((embed[:, :, 1:] - embed[:, :, :-1])**2).sum()**0.5
                 l += ((embed[:, :, :, 1:] - embed[:, :, :, :-1])**2).sum()**0.5
-        else:
+        if global_step > t3:
             for embed in self.vector_1:
                 l += ((embed[:, :, 1:] - embed[:, :, :-1])**2).sum()**0.5
                 l += ((embed[:, :, :, 1:] - embed[:, :, :, :-1])**2).sum()**0.5
@@ -296,17 +323,17 @@ class MultiScaleTriplane_Pooling(nn.Module):
     
     def l2reg(self, global_step):
         l = 0
-
-        if global_step <= 3000:
-            for embed in self.plane_4:
-                l += (embed**2).sum()**0.5
-        elif global_step <= 4000:
+        t1, t2, t3 = self.t1, self.t2, self.t3
+        # Regularize ALL active scales
+        for embed in self.plane_4:
+            l += (embed**2).sum()**0.5
+        if global_step > t1:
             for embed in self.plane_3:
                 l += (embed**2).sum()**0.5
-        elif global_step <= 5000:
+        if global_step > t2:
             for embed in self.plane_2:
                 l += (embed**2).sum()**0.5
-        else:
+        if global_step > t3:
             for embed in self.vector_1:
                 l += (embed**2).sum()**0.5
         return l

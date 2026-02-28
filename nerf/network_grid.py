@@ -47,7 +47,8 @@ class NeRFNetwork(NeRFRenderer):
         self.hidden_dim = hidden_dim
 
         # self.encoder, self.in_dim = get_encoder('hashgrid', input_dim=3, log2_hashmap_size=19, desired_resolution=2048 * self.bound, interpolation='smoothstep')
-        self.encoder, self.in_dim = get_encoder('multiscale_triplane_pooling', input_dim=3, iteration=0, is_training=True)
+        _max_iters = opt.iters if hasattr(opt, 'iters') else 6000
+        self.encoder, self.in_dim = get_encoder('multiscale_triplane_pooling', input_dim=3, iteration=0, is_training=True, max_iters=_max_iters)
         self.sigma_net = MLP(self.in_dim, 4, hidden_dim, num_layers, bias=True)
         # self.normal_net = MLP(self.in_dim, 3, hidden_dim, num_layers, bias=True)
 
@@ -166,7 +167,7 @@ class NeRFNetwork(NeRFRenderer):
     def get_params(self, lr):
 
         params = [
-            {'params': self.encoder.parameters(), 'lr': lr * 10},
+            {'params': self.encoder.parameters(), 'lr': lr},
             {'params': self.sigma_net.parameters(), 'lr': lr},
             # {'params': self.normal_net.parameters(), 'lr': lr},
         ]        

@@ -90,7 +90,7 @@ def get_encoder(encoding, input_dim=3,
 
     elif encoding == 'multiscale_triplane_pooling':
         from gridencoder import MultiScaleTriplane_Pooling
-        encoder = MultiScaleTriplane_Pooling(input_dim=input_dim)
+        encoder = MultiScaleTriplane_Pooling(input_dim=input_dim, **kwargs)
     else:
         raise NotImplementedError('Unknown encoding mode, choose from [None, frequency, sphere_harmonics, hashgrid, tiledgrid]')
 

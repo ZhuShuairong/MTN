@@ -21,7 +21,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--file', type=open, action=LoadFromFile, help="specify a file filled with more arguments")
     parser.add_argument('--text', default=None, help="text prompt")
-    parser.add_argument('--negative', default='', type=str, help="negative text prompt")
+    parser.add_argument('--negative', default='ugly, blurry, low quality, distorted, unrealistic', type=str, help="negative text prompt")
     parser.add_argument('-O', action='store_true', help="equals --fp16 --cuda_ray")
     parser.add_argument('-O2', action='store_true', help="equals --backbone vanilla")
     parser.add_argument('--test', action='store_true', help="test mode")
@@ -77,7 +77,7 @@ if __name__ == '__main__':
     parser.add_argument('--jitter_target', type=float, default=0.2, help="amount of jitter to add to sampled camera pose's target (i.e. 'look-at')")
     parser.add_argument('--jitter_up', type=float, default=0.02, help="amount of jitter to add to sampled camera pose's up-axis (i.e. 'camera roll')")
     parser.add_argument('--uniform_sphere_rate', type=float, default=0, help="likelihood of sampling camera location uniformly on the sphere surface area")
-    parser.add_argument('--grad_clip', type=float, default=-1, help="clip grad of all grad to this limit, negative value disables it")
+    parser.add_argument('--grad_clip', type=float, default=1.0, help="clip grad of all grad to this limit, negative value disables it")
     parser.add_argument('--grad_clip_rgb', type=float, default=-1, help="clip grad of rgb space grad to this limit, negative value disables it")
     # model options
     parser.add_argument('--bg_radius', type=float, default=1.4, help="if positive, use a background model at sphere(bg_radius)") #1.4
@@ -88,7 +88,7 @@ if __name__ == '__main__':
     # network backbone
     parser.add_argument('--backbone', type=str, default='grid', choices=['grid_tcnn', 'grid', 'vanilla', 'grid_taichi'], help="nerf backbone")
     parser.add_argument('--optim', type=str, default='adan', choices=['adan', 'adam'], help="optimizer")
-    parser.add_argument('--sd_version', type=str, default='2.1', choices=['1.5', '2.0', '2.1'], help="stable diffusion version")
+    parser.add_argument('--sd_version', type=str, default='1.5', choices=['1.5', '2.0', '2.1', '3.5'], help="stable diffusion version")
     parser.add_argument('--hf_key', type=str, default=None, help="hugging face Stable diffusion model key")
     # try this if CUDA OOM
     parser.add_argument('--fp16', action='store_true', help="use float16 for training")
@@ -144,8 +144,8 @@ if __name__ == '__main__':
     parser.add_argument('--lambda_depth', type=float, default=10, help="loss scale for relative depth")
     parser.add_argument('--lambda_2d_normal_smooth', type=float, default=0, help="loss scale for 2D normal image smoothness")
     parser.add_argument('--lambda_3d_normal_smooth', type=float, default=0, help="loss scale for 3D normal image smoothness")
-    parser.add_argument('--lambda_grid_tv_reg', type=float, default=1e-7, help="loss scale for grid regularization")
-    parser.add_argument('--lambda_grid_l2_reg', type=float, default=1e-7, help="loss scale for grid regularization")
+    parser.add_argument('--lambda_grid_tv_reg', type=float, default=1e-5, help="loss scale for grid regularization")
+    parser.add_argument('--lambda_grid_l2_reg', type=float, default=1e-5, help="loss scale for grid regularization")
 
     ### debugging options
     parser.add_argument('--save_guidance', action='store_true', help="save images of the per-iteration NeRF renders, added noise, denoised (i.e. guidance), fully-denoised. Useful for debugging, but VERY SLOW and takes lots of memory!")
@@ -165,7 +165,7 @@ if __name__ == '__main__':
     parser.add_argument('--zero123_ckpt', type=str, default='./pretrained/zero123/105000.ckpt', help="ckpt for zero123")
     parser.add_argument('--zero123_grad_scale', type=str, default='angle', help="whether to scale the gradients based on 'angle' or 'None'")
 
-    parser.add_argument('--dataset_size_train', type=int, default=100, help="Length of train dataset i.e. # of iterations per epoch")
+    parser.add_argument('--dataset_size_train', type=int, default=200, help="Length of train dataset i.e. # of iterations per epoch")
     parser.add_argument('--dataset_size_valid', type=int, default=8, help="# of frames to render in the turntable video in validation")
     parser.add_argument('--dataset_size_test', type=int, default=100, help="# of frames to render in the turntable video at test time")
 
@@ -293,7 +293,7 @@ if __name__ == '__main__':
 
     if opt.backbone == 'vanilla':
         from nerf.network import NeRFNetwork
-    elif opt.backbone == 'grid' or 'multiscale_triplane_pooling':
+    elif opt.backbone in ['grid', 'multiscale_triplane_pooling']:
         from nerf.network_grid import NeRFNetwork
     elif opt.backbone == 'grid_tcnn':
         from nerf.network_grid_tcnn import NeRFNetwork
@@ -375,8 +375,9 @@ if __name__ == '__main__':
         if opt.backbone == 'vanilla':
             scheduler = lambda optimizer: optim.lr_scheduler.LambdaLR(optimizer, lambda iter: 0.1 ** min(iter / opt.iters, 1))
         else:
-            scheduler = lambda optimizer: optim.lr_scheduler.LambdaLR(optimizer, lambda iter: 1) # fixed
-            # scheduler = lambda optimizer: optim.lr_scheduler.LambdaLR(optimizer, lambda iter: 0.1 ** min(iter / opt.iters, 1))
+            # cosine decay from 1.0 to 0.1 over training
+            import math as _math
+            scheduler = lambda optimizer: optim.lr_scheduler.LambdaLR(optimizer, lambda iter: 0.1 + 0.9 * 0.5 * (1 + _math.cos(_math.pi * min(iter / opt.iters, 1))))
 
         guidance = nn.ModuleDict()
 
@@ -396,7 +397,7 @@ if __name__ == '__main__':
             from guidance.clip_utils import CLIP
             guidance['clip'] = CLIP(device)
 
-        trainer = Trainer(' '.join(sys.argv), 'df', opt, model, guidance, device=device, workspace=opt.workspace, optimizer=optimizer, ema_decay=0.95, fp16=opt.fp16, lr_scheduler=scheduler, use_checkpoint=opt.ckpt, scheduler_update_every_step=True)
+        trainer = Trainer(' '.join(sys.argv), 'df', opt, model, guidance, device=device, workspace=opt.workspace, optimizer=optimizer, ema_decay=0.995, fp16=opt.fp16, lr_scheduler=scheduler, use_checkpoint=opt.ckpt, scheduler_update_every_step=True)
 
         trainer.default_view_data = train_loader._data.get_default_view_data()
 

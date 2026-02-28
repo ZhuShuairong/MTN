@@ -33,7 +33,6 @@ xatlas
 trimesh
 PyMCubes
 pymeshlab == 2022.2.post3
-git+https://github.com/NVlabs/nvdiffrast/
 
 # for zero123
 carvekit-colab
@@ -41,7 +40,6 @@ omegaconf
 pytorch-lightning
 taming-transformers-rom1504
 kornia
-git+https://github.com/openai/CLIP.git
 
 # for omnidata
 gdown

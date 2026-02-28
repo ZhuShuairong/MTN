@@ -269,7 +269,7 @@ class NeRFRenderer(nn.Module):
         self.min_near = opt.min_near
         self.density_thresh = opt.density_thresh
         self.train_step = 0
-        self.max_train_step = 6000
+        self.max_train_step = opt.iters if hasattr(opt, 'iters') else 6000
         # prepare aabb with a 6D tensor (xmin, ymin, zmin, xmax, ymax, zmax)
         # NOTE: aabb (can be rectangular) is only used to generate points, we still rely on bound (always cubic) to calculate density grid and hashing.
         aabb_train = torch.FloatTensor([-opt.bound, -opt.bound, -opt.bound, opt.bound, opt.bound, opt.bound])

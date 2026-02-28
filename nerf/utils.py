@@ -462,24 +462,16 @@ class Trainer(object):
 
         # progressively relaxing view range
         if self.opt.progressive_view:
-            if self.global_step > 5000:
-                r = 0.6
-            elif self.global_step > 4000:
-                r = 0.7
-            elif self.global_step > 3000:
-                r = 0.8
-            else:
-                r = 1
-                # r = min(1.0, self.opt.progressive_view_init_ratio + 2.0*exp_iter_ratio)
-                # self.opt.phi_range = [self.opt.default_azimuth * (1 - r) + self.opt.full_phi_range[0] * r,
-                #                       self.opt.default_azimuth * (1 - r) + self.opt.full_phi_range[1] * r]
-                # self.opt.theta_range = [self.opt.default_polar * (1 - r) + self.opt.full_theta_range[0] * r,
-                #                         self.opt.default_polar * (1 - r) + self.opt.full_theta_range[1] * r]
-                # self.opt.radius_range = [self.opt.default_radius * (1 - r) + self.opt.full_radius_range[0] * r,
-                #                         self.opt.default_radius * (1 - r) + self.opt.full_radius_range[1] * r]
-            self.opt.radius_range = [self.opt.full_radius_range[0] * r, self.opt.full_radius_range[1] * r]
-            # self.opt.fovy_range = [self.opt.default_fovy * (1 - r) + self.opt.full_fovy_range[0] * r,
-            #                         self.opt.default_fovy * (1 - r) + self.opt.full_fovy_range[1] * r]
+            # progressively expand from narrow to full range based on iteration ratio
+            r = min(1.0, self.opt.progressive_view_init_ratio + 2.0 * exp_iter_ratio)
+            self.opt.phi_range = [self.opt.default_azimuth * (1 - r) + self.opt.full_phi_range[0] * r,
+                                  self.opt.default_azimuth * (1 - r) + self.opt.full_phi_range[1] * r]
+            self.opt.theta_range = [self.opt.default_polar * (1 - r) + self.opt.full_theta_range[0] * r,
+                                    self.opt.default_polar * (1 - r) + self.opt.full_theta_range[1] * r]
+            self.opt.radius_range = [self.opt.default_radius * (1 - r) + self.opt.full_radius_range[0] * r,
+                                    self.opt.default_radius * (1 - r) + self.opt.full_radius_range[1] * r]
+            self.opt.fovy_range = [self.opt.default_fovy * (1 - r) + self.opt.full_fovy_range[0] * r,
+                                    self.opt.default_fovy * (1 - r) + self.opt.full_fovy_range[1] * r]
 
         # progressively increase max_level
         if self.opt.progressive_level:
