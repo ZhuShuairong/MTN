@@ -48,8 +48,6 @@ class StableDiffusion(nn.Module):
         if hf_key is not None:
             print(f'[INFO] using hugging face custom model key: {hf_key}')
             model_key = hf_key
-        elif self.sd_version == "3.5":
-            model_key = "stabilityai/stable-diffusion-3.5-large"
         elif self.sd_version == '2.1':
             model_key = "sd2-community/stable-diffusion-2-1-base"
         elif self.sd_version == '2.0':
@@ -78,13 +76,14 @@ class StableDiffusion(nn.Module):
         self.text_encoder = pipe.text_encoder
         self.unet = pipe.unet
 
-        # Force epsilon prediction type for all SD versions to ensure correct SDS gradient computation.
-        # SD 2.1 defaults to v-prediction which is incompatible with the SDS loss formulation (grad = w * (noise_pred - noise)).
+        # Force epsilon prediction type for schedulers that use v-prediction to ensure
+        # correct SDS gradient computation (grad = w * (noise_pred - noise)).
         self.scheduler = DDIMScheduler.from_pretrained(model_key, subfolder="scheduler", torch_dtype=self.precision_t)
-        if hasattr(self.scheduler.config, 'prediction_type') and self.scheduler.config.prediction_type == 'v_prediction':
-            print(f'[INFO] SD {self.sd_version} uses v-prediction. Converting scheduler to epsilon-prediction for SDS compatibility.')
+        scheduler_prediction_type = getattr(self.scheduler.config, 'prediction_type', 'epsilon')
+        self.v_prediction = scheduler_prediction_type == 'v_prediction'
+        if self.v_prediction:
+            print(f'[INFO] model {model_key} uses v-prediction. Converting scheduler to epsilon-prediction for SDS compatibility.')
             self.scheduler = DDIMScheduler.from_pretrained(model_key, subfolder="scheduler", torch_dtype=self.precision_t, prediction_type='epsilon')
-        self.v_prediction = (sd_version in ['2.1'])  # track for gradient conversion
 
         del pipe
 
@@ -129,7 +128,7 @@ class StableDiffusion(nn.Module):
             tt = torch.cat([t] * 2)
             noise_pred = self.unet(latent_model_input, tt, encoder_hidden_states=text_embeddings).sample
 
-            # convert v-prediction to epsilon-prediction if needed (SD 2.1 uses v-prediction)
+            # convert v-prediction output to epsilon if needed
             if self.v_prediction:
                 alpha_t = self.alphas[t].sqrt()[:, None, None, None]
                 sigma_t = (1 - self.alphas[t]).sqrt()[:, None, None, None]
@@ -219,7 +218,7 @@ class StableDiffusion(nn.Module):
             tt = torch.cat([t] * (1 + K))
             unet_output = self.unet(latent_model_input, tt, encoder_hidden_states=text_embeddings).sample
 
-            # convert v-prediction to epsilon-prediction if needed (SD 2.1 uses v-prediction)
+            # convert v-prediction output to epsilon if needed
             if self.v_prediction:
                 alpha_t = self.alphas[t].sqrt()[:, None, None, None]
                 sigma_t = (1 - self.alphas[t]).sqrt()[:, None, None, None]
