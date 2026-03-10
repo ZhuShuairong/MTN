@@ -353,6 +353,13 @@ class Trainer(object):
                 self.log(f"[INFO] Loading {self.use_checkpoint} ...")
                 self.load_checkpoint(self.use_checkpoint)
 
+    def _apply_warmup_lr(self):
+        if not hasattr(self, 'warm_step') or self.global_step >= self.warm_step:
+            return
+
+        for i in range(len(self.optimizer.param_groups)):
+            self.optimizer.param_groups[i]['lr'] = self.warmup_lr_schedule[i][self.global_step]
+
     # calculate the text embs.
     @torch.no_grad()
     def prepare_embeddings(self):
@@ -959,6 +966,7 @@ class Trainer(object):
                 with torch.cuda.amp.autocast(enabled=self.fp16):
                     self.model.update_extra_state()
 
+            self._apply_warmup_lr()
             self.global_step += 1
 
             self.optimizer.zero_grad()
@@ -1056,9 +1064,7 @@ class Trainer(object):
         return outputs
 
     def train_one_epoch(self, loader, max_epochs):
-        if self.global_step < self.warm_step:
-            for i in range(len(self.optimizer.param_groups)):
-                self.optimizer.param_groups[i]['lr'] = self.warmup_lr_schedule[i][self.global_step]
+        self._apply_warmup_lr()
         self.log(f"==> [{time.strftime('%Y-%m-%d_%H-%M-%S')}] Start Training {self.workspace} Epoch {self.epoch}/{max_epochs}, lr={self.optimizer.param_groups[0]['lr']:.6f} ...")
 
         total_loss = 0
@@ -1092,6 +1098,7 @@ class Trainer(object):
                 with torch.cuda.amp.autocast(enabled=self.fp16):
                     self.model.update_extra_state()
 
+            self._apply_warmup_lr()
             self.local_step += 1
             self.global_step += 1
 
